@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: fastapi
+  name: incident-backend
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: fastapi
+      app: incident-backend
   template:
     metadata:
       labels:
-        app: fastapi
+        app: incident-backend
     spec:
       containers:
-      - name: fastapi
-        image: yourdockerhub/fastapi-app
+      - name: incident-backend
+        image: 808808151714.dkr.ecr.ap-south-1.amazonaws.com/incident-backend:latest
         ports:
         - containerPort: 8000
