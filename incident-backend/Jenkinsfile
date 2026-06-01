@@ -10,13 +10,6 @@ pipeline {
     }
 
     stages {
-
-        stage('Checkout') {
-            steps {
-                git 'https://github.com/KetanHegde/incident-reporting-system.git'
-            }
-        }
-
         stage('Build Docker Image') {
             steps {
                 sh '''
