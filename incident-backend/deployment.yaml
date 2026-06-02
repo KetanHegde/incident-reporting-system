@@ -12,6 +12,7 @@ spec:
       labels:
         app: incident-backend
     spec:
+      hostNetwork: true
       containers:
       - name: incident-backend
         image: 808808151714.dkr.ecr.ap-south-1.amazonaws.com/incident-backend:latest
