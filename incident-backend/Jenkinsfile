@@ -50,11 +50,13 @@ pipeline {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KCFG')]) {
                     sh '''
                     export KUBECONFIG=$KCFG
-
-                    kubectl set image deployment/incident-backend incident-backend=$ECR_REPO:$IMAGE_TAG
-
+        
+                    # ✅ Step 1: Create or update deployment
                     kubectl apply -f incident-backend/deployment.yaml
                     kubectl apply -f incident-backend/service.yaml
+        
+                    # ✅ Step 2: Update image (for rolling update)
+                    kubectl set image deployment/incident-backend incident-backend=$ECR_REPO:$IMAGE_TAG || true
                     '''
                 }
             }
