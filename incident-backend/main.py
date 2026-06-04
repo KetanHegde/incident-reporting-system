@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.middleware.cors import CORSMiddleware
 
 import os
 import boto3
@@ -24,6 +25,23 @@ if not AWS_REGION:
 # FastAPI app
 # -------------------------------------------------
 app = FastAPI(title="Incident Backend API")
+
+
+origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost",
+    "http://https://d3v1bwweufhpww.cloudfront.net",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # -------------------------------------------------
 # AWS clients (explicit region = REQUIRED)
