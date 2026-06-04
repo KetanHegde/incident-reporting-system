@@ -28,9 +28,6 @@ app = FastAPI(title="Incident Backend API")
 
 
 origins = [
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "http://localhost",
     "https://d3v1bwweufhpww.cloudfront.net",
 ]
 
