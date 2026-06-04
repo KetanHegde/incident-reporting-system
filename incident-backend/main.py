@@ -31,7 +31,7 @@ origins = [
     "http://localhost:3000",
     "http://localhost:5173",
     "http://localhost",
-    "http://https://d3v1bwweufhpww.cloudfront.net",
+    "https://d3v1bwweufhpww.cloudfront.net",
 ]
 
 app.add_middleware(
