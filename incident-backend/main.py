@@ -1,13 +1,11 @@
 from fastapi import FastAPI, Depends, HTTPException
-from dotenv import load_dotenv
-load_dotenv()
-
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
 
 import os
 import boto3
-import requests
+from botocore.exceptions import ClientError
 
 from auth import authorize_token, admin_only
 from db import get_db
@@ -16,18 +14,29 @@ from dynamo import log_event
 # -------------------------------------------------
 # Load environment
 # -------------------------------------------------
+load_dotenv()
 
 AWS_REGION = os.getenv("AWS_REGION")
+S3_BUCKET = os.getenv("S3_BUCKET")
+
 if not AWS_REGION:
     raise RuntimeError("AWS_REGION is not set")
+
+if not S3_BUCKET:
+    raise RuntimeError("S3_BUCKET is not set")
 
 # -------------------------------------------------
 # FastAPI app
 # -------------------------------------------------
 app = FastAPI(title="Incident Backend API")
 
-
+# -------------------------------------------------
+# CORS
+# -------------------------------------------------
 origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost",
     "https://d3v1bwweufhpww.cloudfront.net",
 ]
 
@@ -39,14 +48,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # -------------------------------------------------
-# AWS clients (explicit region = REQUIRED)
+# AWS clients
 # -------------------------------------------------
 s3 = boto3.client("s3", region_name=AWS_REGION)
 
 # -------------------------------------------------
-# Security (Swagger-aware)
+# Security
 # -------------------------------------------------
 bearer_scheme = HTTPBearer()
 
@@ -56,7 +64,6 @@ def get_current_user(
 ):
     """
     Validates JWT and returns user claims.
-    Locks Swagger with Bearer auth.
     """
     return authorize_token(credentials.credentials)
 
@@ -72,7 +79,7 @@ def get_admin_user(
 
 
 # -------------------------------------------------
-# Health check (ALB)
+# Health check
 # -------------------------------------------------
 @app.get("/health", tags=["System"])
 def health():
@@ -80,97 +87,336 @@ def health():
 
 
 # -------------------------------------------------
-# User APIs (🔒)
+# User APIs
 # -------------------------------------------------
 @app.post("/incident", tags=["User"])
 def create_incident(
     data: dict,
     user: dict = Depends(get_current_user),
 ):
-    conn = get_db()
-    cur = conn.cursor(dictionary=True)
+    required_fields = ["incident_name", "description", "priority"]
 
-    cur.execute(
-        """
-        INSERT INTO incidents (user_id, incident_name, description, priority)
-        VALUES (%s,%s,%s,%s)
-        RETURNING id
-        """,
-        (
-            user["sub"],
-            data["incident_name"],
-            data["description"],
-            data["priority"],
-        ),
-    )
+    for field in required_fields:
+        if field not in data or data[field] in [None, ""]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{field} is required",
+            )
 
-    incident_id = cur.fetchone()[0]
-    conn.commit()
-    conn.close()
+    conn = None
 
-    log_event(f"incident-{incident_id} created", user, incident_id)
+    try:
+        conn = get_db()
+        cur = conn.cursor(dictionary=True)
 
-    screenshot_key = f"screenshots/{incident_id}.png"
-    cur.execute(
-        """
-        UPDATE incidents
-        SET screenshot_key = %s
-        WHERE id = %s
-        """,
-        (screenshot_key, incident_id),
-    )
-    conn.commit()
+        cur.execute(
+            """
+            INSERT INTO incidents 
+            (
+                user_id, 
+                incident_name, 
+                description, 
+                priority, 
+                status,
+                screenshot_uploaded,
+                created_at,
+                updated_at
+            )
+            VALUES 
+            (
+                %s, %s, %s, %s, 'OPEN', FALSE, NOW(), NOW()
+            )
+            """,
+            (
+                user["sub"],
+                data["incident_name"],
+                data["description"],
+                data["priority"],
+            ),
+        )
 
-    upload_url = s3.generate_presigned_url(
-        "put_object",
-        Params={
-            "Bucket": os.environ["S3_BUCKET"],
-            "Key": screenshot_key,
-        },
-        ExpiresIn=300,
-    )
+        incident_id = cur.lastrowid
 
-    return {
-        "incident_id": incident_id,
-        "uploadUrl": upload_url,
-    }
+        screenshot_key = f"screenshots/{incident_id}.png"
+
+        cur.execute(
+            """
+            UPDATE incidents
+            SET screenshot_key = %s, updated_at = NOW()
+            WHERE id = %s
+            """,
+            (screenshot_key, incident_id),
+        )
+
+        conn.commit()
+
+        log_event("INCIDENT_CREATED", user, incident_id)
+
+        upload_url = s3.generate_presigned_url(
+            ClientMethod="put_object",
+            Params={
+                "Bucket": S3_BUCKET,
+                "Key": screenshot_key,
+                "ContentType": "image/png",
+            },
+            ExpiresIn=300,
+        )
+
+        return {
+            "incident_id": incident_id,
+            "uploadUrl": upload_url,
+            "screenshot_key": screenshot_key,
+        }
+
+    except ClientError as e:
+        if conn:
+            conn.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"S3 error: {str(e)}",
+        )
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create incident: {str(e)}",
+        )
+
+    finally:
+        if conn:
+            conn.close()
 
 
-@app.get("/incident/my", tags=["User"])
-def my_incidents(
+@app.get("/incidents/my", tags=["User"])
+def get_my_incidents(
     user: dict = Depends(get_current_user),
 ):
-    conn = get_db()
-    cur = conn.cursor(dictionary=True)
+    conn = None
 
-    cur.execute(
-        "SELECT * FROM incidents WHERE user_id=%s",
-        (user["sub"],),
-    )
-    rows = cur.fetchall()
-    conn.close()
+    try:
+        conn = get_db()
+        cur = conn.cursor(dictionary=True)
 
-    return rows
+        cur.execute(
+            """
+            SELECT 
+                id,
+                user_id,
+                incident_name,
+                description,
+                priority,
+                status,
+                screenshot_key,
+                screenshot_uploaded,
+                created_at,
+                updated_at,
+                resolved_at
+            FROM incidents
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+            """,
+            (user["sub"],),
+        )
+
+        rows = cur.fetchall()
+        return rows
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch incidents: {str(e)}",
+        )
+
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.post("/incident/{incident_id}/screenshot", tags=["User"])
+def confirm_screenshot(
+    incident_id: int,
+    user: dict = Depends(get_current_user),
+):
+    conn = None
+
+    try:
+        conn = get_db()
+        cur = conn.cursor(dictionary=True)
+
+        cur.execute(
+            """
+            SELECT id, user_id, screenshot_key
+            FROM incidents
+            WHERE id = %s
+            """,
+            (incident_id,),
+        )
+
+        incident = cur.fetchone()
+
+        if not incident:
+            raise HTTPException(
+                status_code=404,
+                detail="Incident not found",
+            )
+
+        if incident["user_id"] != user["sub"]:
+            raise HTTPException(
+                status_code=403,
+                detail="You are not allowed to update this incident",
+            )
+
+        cur.execute(
+            """
+            UPDATE incidents
+            SET screenshot_uploaded = TRUE, updated_at = NOW()
+            WHERE id = %s
+            """,
+            (incident_id,),
+        )
+
+        conn.commit()
+
+        log_event("SCREENSHOT_UPLOADED", user, incident_id)
+
+        return {
+            "status": "screenshot_confirmed",
+            "incident_id": incident_id,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to confirm screenshot: {str(e)}",
+        )
+
+    finally:
+        if conn:
+            conn.close()
 
 
 # -------------------------------------------------
-# Admin APIs (🔒🔒)
+# Admin APIs
 # -------------------------------------------------
+@app.get("/admin/incidents", tags=["Admin"])
+def get_all_incidents(
+    user: dict = Depends(get_admin_user),
+):
+    conn = None
+
+    try:
+        conn = get_db()
+        cur = conn.cursor(dictionary=True)
+
+        cur.execute(
+            """
+            SELECT 
+                id,
+                user_id,
+                incident_name,
+                description,
+                priority,
+                status,
+                screenshot_key,
+                screenshot_uploaded,
+                created_at,
+                updated_at,
+                resolved_at
+            FROM incidents
+            ORDER BY created_at DESC
+            """
+        )
+
+        rows = cur.fetchall()
+        return rows
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch all incidents: {str(e)}",
+        )
+
+    finally:
+        if conn:
+            conn.close()
+
+
 @app.post("/admin/resolve/{incident_id}", tags=["Admin"])
 def resolve_incident(
     incident_id: int,
     user: dict = Depends(get_admin_user),
 ):
-    conn = get_db()
-    cur = conn.cursor(dictionary=True)
+    conn = None
 
-    cur.execute(
-        "UPDATE incidents SET status='RESOLVED' WHERE id=%s",
-        (incident_id,),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn = get_db()
+        cur = conn.cursor(dictionary=True)
 
-    log_event(f"incident-{incident_id} resolved", user, incident_id)
+        cur.execute(
+            """
+            SELECT id, status
+            FROM incidents
+            WHERE id = %s
+            """,
+            (incident_id,),
+        )
 
-    return {"status": "resolved"}
+        incident = cur.fetchone()
+
+        if not incident:
+            raise HTTPException(
+                status_code=404,
+                detail="Incident not found",
+            )
+
+        if incident["status"] == "RESOLVED":
+            return {
+                "status": "already_resolved",
+                "incident_id": incident_id,
+            }
+
+        cur.execute(
+            """
+            UPDATE incidents
+            SET status = 'RESOLVED',
+                resolved_at = NOW(),
+                updated_at = NOW()
+            WHERE id = %s
+            """,
+            (incident_id,),
+        )
+
+        conn.commit()
+
+        log_event("INCIDENT_RESOLVED", user, incident_id)
+
+        return {
+            "status": "resolved",
+            "incident_id": incident_id,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to resolve incident: {str(e)}",
+        )
+
+    finally:
+        if conn:
+            conn.close()
