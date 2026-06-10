@@ -1,7 +1,8 @@
-import psycopg2, os
+import os
+import pymysql
 
 def get_db():
-    return psycopg2.connect(
+    return pymysql.connect(
         host=os.environ["DB_HOST"],
         database=os.environ["DB_NAME"],
         user=os.environ["DB_USER"],
