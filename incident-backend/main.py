@@ -107,7 +107,7 @@ def get_admin_user(
 # -------------------------------------------------
 @app.get("/health", tags=["System"])
 def health():
-    return {"status": "ok"}
+    return {"status": "200 ok"}
 
 
 # -------------------------------------------------
