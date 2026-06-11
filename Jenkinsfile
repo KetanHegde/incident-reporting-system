@@ -1,6 +1,6 @@
 pipeline {
     agent any
-    
+
     options {
         skipDefaultCheckout(true)
     }
@@ -8,8 +8,8 @@ pipeline {
     parameters {
         choice(
             name: 'DEPLOY_TARGET',
-            choices: ['auto', 'backend', 'frontend', 'all'],
-            description: 'auto = deploy only changed folders. backend/frontend/all = force manual deployment.'
+            choices: ['auto', 'frontend', 'backend', 'all'],
+            description: 'auto = deploy based on changed files. frontend/backend/all = force deploy manually.'
         )
     }
 
@@ -36,15 +36,12 @@ pipeline {
             }
         }
 
-        /*
-         * =========================
-         * Backend CI/CD
-         * =========================
-         */
-
         stage('Build Backend Docker Image') {
             when {
-                changeset "incident-backend/**"
+                anyOf {
+                    changeset "incident-backend/**"
+                    expression { return params.DEPLOY_TARGET == 'backend' || params.DEPLOY_TARGET == 'all' }
+                }
             }
             steps {
                 sh '''
@@ -55,7 +52,10 @@ pipeline {
 
         stage('Login to ECR') {
             when {
-                changeset "incident-backend/**"
+                anyOf {
+                    changeset "incident-backend/**"
+                    expression { return params.DEPLOY_TARGET == 'backend' || params.DEPLOY_TARGET == 'all' }
+                }
             }
             steps {
                 sh '''
@@ -67,7 +67,10 @@ pipeline {
 
         stage('Tag Backend Image') {
             when {
-                changeset "incident-backend/**"
+                anyOf {
+                    changeset "incident-backend/**"
+                    expression { return params.DEPLOY_TARGET == 'backend' || params.DEPLOY_TARGET == 'all' }
+                }
             }
             steps {
                 sh '''
@@ -79,7 +82,10 @@ pipeline {
 
         stage('Push Backend Image to ECR') {
             when {
-                changeset "incident-backend/**"
+                anyOf {
+                    changeset "incident-backend/**"
+                    expression { return params.DEPLOY_TARGET == 'backend' || params.DEPLOY_TARGET == 'all' }
+                }
             }
             steps {
                 sh '''
@@ -91,7 +97,10 @@ pipeline {
 
         stage('Deploy Backend to K8s') {
             when {
-                changeset "incident-backend/**"
+                anyOf {
+                    changeset "incident-backend/**"
+                    expression { return params.DEPLOY_TARGET == 'backend' || params.DEPLOY_TARGET == 'all' }
+                }
             }
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KCFG')]) {
@@ -107,15 +116,12 @@ pipeline {
             }
         }
 
-        /*
-         * =========================
-         * Frontend CI/CD
-         * =========================
-         */
-
         stage('Install Frontend Dependencies') {
             when {
-                changeset "incident-frontend/**"
+                anyOf {
+                    changeset "incident-frontend/**"
+                    expression { return params.DEPLOY_TARGET == 'frontend' || params.DEPLOY_TARGET == 'all' }
+                }
             }
             steps {
                 dir("${FRONTEND_DIR}") {
@@ -128,12 +134,16 @@ pipeline {
 
         stage('Build Frontend') {
             when {
-                changeset "incident-frontend/**"
+                anyOf {
+                    changeset "incident-frontend/**"
+                    expression { return params.DEPLOY_TARGET == 'frontend' || params.DEPLOY_TARGET == 'all' }
+                }
             }
             steps {
                 dir("${FRONTEND_DIR}") {
                     sh '''
                     npm run build
+                    ls -la $FRONTEND_BUILD_DIR
                     '''
                 }
             }
@@ -141,14 +151,22 @@ pipeline {
 
         stage('Deploy Frontend to S3') {
             when {
-                changeset "incident-frontend/**"
+                anyOf {
+                    changeset "incident-frontend/**"
+                    expression { return params.DEPLOY_TARGET == 'frontend' || params.DEPLOY_TARGET == 'all' }
+                }
             }
             steps {
                 dir("${FRONTEND_DIR}") {
                     sh '''
+                    echo "Deploying frontend to S3 bucket: $S3_BUCKET"
+
                     aws s3 sync $FRONTEND_BUILD_DIR s3://$S3_BUCKET \
                       --delete \
                       --region $AWS_REGION
+
+                    echo "S3 files after deployment:"
+                    aws s3 ls s3://$S3_BUCKET --region $AWS_REGION
                     '''
                 }
             }
@@ -156,11 +174,9 @@ pipeline {
 
         stage('Invalidate CloudFront Cache') {
             when {
-                allOf {
+                anyOf {
                     changeset "incident-frontend/**"
-                    expression {
-                        return env.CLOUDFRONT_DISTRIBUTION_ID?.trim()
-                    }
+                    expression { return params.DEPLOY_TARGET == 'frontend' || params.DEPLOY_TARGET == 'all' }
                 }
             }
             steps {
@@ -183,7 +199,8 @@ pipeline {
         }
 
         always {
-            echo "Pipeline finished. Backend stages run only for incident-backend changes. Frontend stages run only for incident-frontend changes."
+            echo "DEPLOY_TARGET=${params.DEPLOY_TARGET}"
+            echo "auto = deploy based on changed files. frontend/backend/all = force deploy manually."
         }
     }
 }
