@@ -12,6 +12,8 @@ from auth import authorize_token, admin_only
 from db import get_db
 from dynamo import log_event
 
+import html
+
 # -------------------------------------------------
 # Load environment
 # -------------------------------------------------
@@ -63,23 +65,21 @@ s3 = boto3.client(
 )
 
 def add_screenshot_urls(rows):
-    """
-    Adds temporary presigned GET URLs for screenshots.
-    Used by admin/user incident list APIs.
-    """
     for row in rows:
         screenshot_key = row.get("screenshot_key")
 
         if screenshot_key:
-            row["screenshot_url"] = s3.generate_presigned_url(
+            screenshot_url = s3.generate_presigned_url(
                 ClientMethod="get_object",
                 Params={
                     "Bucket": S3_BUCKET,
                     "Key": screenshot_key,
                 },
-                ExpiresIn=300,
+                ExpiresIn=3600,
                 HttpMethod="GET",
             )
+
+            row["screenshot_url"] = html.unescape(screenshot_url)
         else:
             row["screenshot_url"] = None
 
@@ -202,6 +202,8 @@ def create_incident(
             HttpMethod="PUT",
         )
 
+        upload_url = html.unescape(upload_url)
+        
         return {
             "incident_id": incident_id,
             "uploadUrl": upload_url,
