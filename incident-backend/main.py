@@ -107,46 +107,46 @@ def create_incident(
 
     try:
         conn = get_db()
-        cur = conn.cursor(dictionary=True)
 
-        cur.execute(
-            """
-            INSERT INTO incidents 
-            (
-                user_id, 
-                incident_name, 
-                description, 
-                priority, 
-                status,
-                screenshot_uploaded,
-                created_at,
-                updated_at
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO incidents 
+                (
+                    user_id, 
+                    incident_name, 
+                    description, 
+                    priority, 
+                    status,
+                    screenshot_uploaded,
+                    created_at,
+                    updated_at
+                )
+                VALUES 
+                (
+                    %s, %s, %s, %s, 'OPEN', FALSE, NOW(), NOW()
+                )
+                """,
+                (
+                    user["sub"],
+                    data["incident_name"],
+                    data["description"],
+                    data["priority"],
+                ),
             )
-            VALUES 
-            (
-                %s, %s, %s, %s, 'OPEN', FALSE, NOW(), NOW()
+
+            incident_id = cur.lastrowid
+
+            screenshot_key = f"screenshots/{incident_id}.png"
+
+            cur.execute(
+                """
+                UPDATE incidents
+                SET screenshot_key = %s, updated_at = NOW()
+                WHERE id = %s
+                """,
+                (screenshot_key, incident_id),
             )
-            """,
-            (
-                user["sub"],
-                data["incident_name"],
-                data["description"],
-                data["priority"],
-            ),
-        )
-
-        incident_id = cur.lastrowid
-
-        screenshot_key = f"screenshots/{incident_id}.png"
-
-        cur.execute(
-            """
-            UPDATE incidents
-            SET screenshot_key = %s, updated_at = NOW()
-            WHERE id = %s
-            """,
-            (screenshot_key, incident_id),
-        )
 
         conn.commit()
 
@@ -199,30 +199,31 @@ def get_my_incidents(
 
     try:
         conn = get_db()
-        cur = conn.cursor(dictionary=True)
 
-        cur.execute(
-            """
-            SELECT 
-                id,
-                user_id,
-                incident_name,
-                description,
-                priority,
-                status,
-                screenshot_key,
-                screenshot_uploaded,
-                created_at,
-                updated_at,
-                resolved_at
-            FROM incidents
-            WHERE user_id = %s
-            ORDER BY created_at DESC
-            """,
-            (user["sub"],),
-        )
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT 
+                    id,
+                    user_id,
+                    incident_name,
+                    description,
+                    priority,
+                    status,
+                    screenshot_key,
+                    screenshot_uploaded,
+                    created_at,
+                    updated_at,
+                    resolved_at
+                FROM incidents
+                WHERE user_id = %s
+                ORDER BY created_at DESC
+                """,
+                (user["sub"],),
+            )
 
-        rows = cur.fetchall()
+            rows = cur.fetchall()
+
         return rows
 
     except Exception as e:
@@ -245,39 +246,39 @@ def confirm_screenshot(
 
     try:
         conn = get_db()
-        cur = conn.cursor(dictionary=True)
 
-        cur.execute(
-            """
-            SELECT id, user_id, screenshot_key
-            FROM incidents
-            WHERE id = %s
-            """,
-            (incident_id,),
-        )
-
-        incident = cur.fetchone()
-
-        if not incident:
-            raise HTTPException(
-                status_code=404,
-                detail="Incident not found",
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, user_id, screenshot_key
+                FROM incidents
+                WHERE id = %s
+                """,
+                (incident_id,),
             )
 
-        if incident["user_id"] != user["sub"]:
-            raise HTTPException(
-                status_code=403,
-                detail="You are not allowed to update this incident",
-            )
+            incident = cur.fetchone()
 
-        cur.execute(
-            """
-            UPDATE incidents
-            SET screenshot_uploaded = TRUE, updated_at = NOW()
-            WHERE id = %s
-            """,
-            (incident_id,),
-        )
+            if not incident:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Incident not found",
+                )
+
+            if incident["user_id"] != user["sub"]:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You are not allowed to update this incident",
+                )
+
+            cur.execute(
+                """
+                UPDATE incidents
+                SET screenshot_uploaded = TRUE, updated_at = NOW()
+                WHERE id = %s
+                """,
+                (incident_id,),
+            )
 
         conn.commit()
 
@@ -316,28 +317,29 @@ def get_all_incidents(
 
     try:
         conn = get_db()
-        cur = conn.cursor(dictionary=True)
 
-        cur.execute(
-            """
-            SELECT 
-                id,
-                user_id,
-                incident_name,
-                description,
-                priority,
-                status,
-                screenshot_key,
-                screenshot_uploaded,
-                created_at,
-                updated_at,
-                resolved_at
-            FROM incidents
-            ORDER BY created_at DESC
-            """
-        )
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT 
+                    id,
+                    user_id,
+                    incident_name,
+                    description,
+                    priority,
+                    status,
+                    screenshot_key,
+                    screenshot_uploaded,
+                    created_at,
+                    updated_at,
+                    resolved_at
+                FROM incidents
+                ORDER BY created_at DESC
+                """
+            )
 
-        rows = cur.fetchall()
+            rows = cur.fetchall()
+
         return rows
 
     except Exception as e:
@@ -360,41 +362,41 @@ def resolve_incident(
 
     try:
         conn = get_db()
-        cur = conn.cursor(dictionary=True)
 
-        cur.execute(
-            """
-            SELECT id, status
-            FROM incidents
-            WHERE id = %s
-            """,
-            (incident_id,),
-        )
-
-        incident = cur.fetchone()
-
-        if not incident:
-            raise HTTPException(
-                status_code=404,
-                detail="Incident not found",
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, status
+                FROM incidents
+                WHERE id = %s
+                """,
+                (incident_id,),
             )
 
-        if incident["status"] == "RESOLVED":
-            return {
-                "status": "already_resolved",
-                "incident_id": incident_id,
-            }
+            incident = cur.fetchone()
 
-        cur.execute(
-            """
-            UPDATE incidents
-            SET status = 'RESOLVED',
-                resolved_at = NOW(),
-                updated_at = NOW()
-            WHERE id = %s
-            """,
-            (incident_id,),
-        )
+            if not incident:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Incident not found",
+                )
+
+            if incident["status"] == "RESOLVED":
+                return {
+                    "status": "already_resolved",
+                    "incident_id": incident_id,
+                }
+
+            cur.execute(
+                """
+                UPDATE incidents
+                SET status = 'RESOLVED',
+                    resolved_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = %s
+                """,
+                (incident_id,),
+            )
 
         conn.commit()
 
