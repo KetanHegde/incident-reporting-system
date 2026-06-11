@@ -11,7 +11,7 @@ export default function Login() {
           onClick={() => auth.signinRedirect()}
           className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded"
         >
-          Sign in with Cognito
+          Sign in
         </button>
       </div>
     </div>
