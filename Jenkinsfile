@@ -1,5 +1,9 @@
 pipeline {
     agent any
+    
+    options {
+        skipDefaultCheckout(true)
+    }
 
     environment {
         AWS_REGION = "ap-south-1"
