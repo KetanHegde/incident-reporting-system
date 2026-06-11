@@ -5,6 +5,14 @@ pipeline {
         skipDefaultCheckout(true)
     }
 
+    parameters {
+        choice(
+            name: 'DEPLOY_TARGET',
+            choices: ['auto', 'backend', 'frontend', 'all'],
+            description: 'auto = deploy only changed folders. backend/frontend/all = force manual deployment.'
+        )
+    }
+
     environment {
         AWS_REGION = "ap-south-1"
 
