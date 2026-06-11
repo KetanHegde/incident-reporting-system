@@ -62,6 +62,29 @@ s3 = boto3.client(
     ),
 )
 
+def add_screenshot_urls(rows):
+    """
+    Adds temporary presigned GET URLs for screenshots.
+    Used by admin/user incident list APIs.
+    """
+    for row in rows:
+        screenshot_key = row.get("screenshot_key")
+
+        if screenshot_key:
+            row["screenshot_url"] = s3.generate_presigned_url(
+                ClientMethod="get_object",
+                Params={
+                    "Bucket": S3_BUCKET,
+                    "Key": screenshot_key,
+                },
+                ExpiresIn=300,
+                HttpMethod="GET",
+            )
+        else:
+            row["screenshot_url"] = None
+
+    return rows
+
 # -------------------------------------------------
 # Security
 # -------------------------------------------------
@@ -360,6 +383,7 @@ def get_all_incidents(
 
             rows = cur.fetchall()
 
+        rows = add_screenshot_urls(rows)
         return rows
 
     except Exception as e:
