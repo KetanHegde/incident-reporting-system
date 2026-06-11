@@ -62,18 +62,12 @@ bearer_scheme = HTTPBearer()
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ):
-    """
-    Validates JWT and returns user claims.
-    """
     return authorize_token(credentials.credentials)
 
 
 def get_admin_user(
     user: dict = Depends(get_current_user),
 ):
-    """
-    Admin-only dependency.
-    """
     admin_only(user)
     return user
 
@@ -162,14 +156,18 @@ def create_incident(
         except Exception as log_error:
             print(f"Failed to log INCIDENT_CREATED event: {log_error}")
 
+        # IMPORTANT:
+        # Do NOT include ContentType here.
+        # Your frontend sends Content-Type: file.type.
+        # If ContentType is signed here, frontend must match it exactly.
         upload_url = s3.generate_presigned_url(
             ClientMethod="put_object",
             Params={
                 "Bucket": S3_BUCKET,
                 "Key": screenshot_key,
-                "ContentType": "image/png",
             },
             ExpiresIn=300,
+            HttpMethod="PUT",
         )
 
         return {
@@ -250,13 +248,6 @@ def confirm_screenshot(
     incident_id: int,
     user: dict = Depends(get_current_user),
 ):
-    """
-    Confirms screenshot action.
-
-    Your current MySQL schema does not have a screenshot_uploaded column,
-    so this endpoint only verifies ownership and updates updated_at.
-    """
-
     conn = None
 
     try:
