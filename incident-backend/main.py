@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import os
 import boto3
 from botocore.exceptions import ClientError
+from botocore.config import Config
 
 from auth import authorize_token, admin_only
 from db import get_db
