@@ -12,8 +12,6 @@ from auth import authorize_token, admin_only
 from db import get_db
 from dynamo import log_event
 
-import html
-
 # -------------------------------------------------
 # Load environment
 # -------------------------------------------------
@@ -79,7 +77,7 @@ def add_screenshot_urls(rows):
                 HttpMethod="GET",
             )
 
-            row["screenshot_url"] = html.unescape(screenshot_url)
+            row["screenshot_url"] = screenshot_url
         else:
             row["screenshot_url"] = None
 
@@ -201,8 +199,6 @@ def create_incident(
             ExpiresIn=300,
             HttpMethod="PUT",
         )
-
-        upload_url = html.unescape(upload_url)
         
         return {
             "incident_id": incident_id,
