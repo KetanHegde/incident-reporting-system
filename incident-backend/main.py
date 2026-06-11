@@ -51,7 +51,15 @@ app.add_middleware(
 # -------------------------------------------------
 # AWS clients
 # -------------------------------------------------
-s3 = boto3.client("s3", region_name=AWS_REGION)
+s3 = boto3.client(
+    "s3",
+    region_name=AWS_REGION,
+    endpoint_url=f"https://s3.{AWS_REGION}.amazonaws.com",
+    config=Config(
+        signature_version="s3v4",
+        s3={"addressing_style": "virtual"}
+    ),
+)
 
 # -------------------------------------------------
 # Security
