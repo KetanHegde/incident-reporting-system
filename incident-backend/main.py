@@ -103,6 +103,14 @@ def create_incident(
                 detail=f"{field} is required",
             )
 
+    priority = str(data["priority"]).upper()
+
+    if priority not in ["LOW", "MEDIUM", "HIGH"]:
+        raise HTTPException(
+            status_code=400,
+            detail="priority must be one of: LOW, MEDIUM, HIGH",
+        )
+
     conn = None
 
     try:
@@ -111,38 +119,37 @@ def create_incident(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO incidents 
+                INSERT INTO incidents
                 (
-                    user_id, 
-                    incident_name, 
-                    description, 
-                    priority, 
+                    user_id,
+                    incident_name,
+                    description,
+                    priority,
                     status,
-                    screenshot_uploaded,
                     created_at,
                     updated_at
                 )
-                VALUES 
+                VALUES
                 (
-                    %s, %s, %s, %s, 'OPEN', FALSE, NOW(), NOW()
+                    %s, %s, %s, %s, 'OPEN', NOW(), NOW()
                 )
                 """,
                 (
                     user["sub"],
                     data["incident_name"],
                     data["description"],
-                    data["priority"],
+                    priority,
                 ),
             )
 
             incident_id = cur.lastrowid
-
             screenshot_key = f"screenshots/{incident_id}.png"
 
             cur.execute(
                 """
                 UPDATE incidents
-                SET screenshot_key = %s, updated_at = NOW()
+                SET screenshot_key = %s,
+                    updated_at = NOW()
                 WHERE id = %s
                 """,
                 (screenshot_key, incident_id),
@@ -150,7 +157,10 @@ def create_incident(
 
         conn.commit()
 
-        log_event("INCIDENT_CREATED", user, incident_id)
+        try:
+            log_event("INCIDENT_CREATED", user, incident_id)
+        except Exception as log_error:
+            print(f"Failed to log INCIDENT_CREATED event: {log_error}")
 
         upload_url = s3.generate_presigned_url(
             ClientMethod="put_object",
@@ -203,7 +213,7 @@ def get_my_incidents(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT 
+                SELECT
                     id,
                     user_id,
                     incident_name,
@@ -211,10 +221,8 @@ def get_my_incidents(
                     priority,
                     status,
                     screenshot_key,
-                    screenshot_uploaded,
                     created_at,
-                    updated_at,
-                    resolved_at
+                    updated_at
                 FROM incidents
                 WHERE user_id = %s
                 ORDER BY created_at DESC
@@ -242,6 +250,13 @@ def confirm_screenshot(
     incident_id: int,
     user: dict = Depends(get_current_user),
 ):
+    """
+    Confirms screenshot action.
+
+    Your current MySQL schema does not have a screenshot_uploaded column,
+    so this endpoint only verifies ownership and updates updated_at.
+    """
+
     conn = None
 
     try:
@@ -250,7 +265,10 @@ def confirm_screenshot(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, user_id, screenshot_key
+                SELECT
+                    id,
+                    user_id,
+                    screenshot_key
                 FROM incidents
                 WHERE id = %s
                 """,
@@ -274,7 +292,7 @@ def confirm_screenshot(
             cur.execute(
                 """
                 UPDATE incidents
-                SET screenshot_uploaded = TRUE, updated_at = NOW()
+                SET updated_at = NOW()
                 WHERE id = %s
                 """,
                 (incident_id,),
@@ -282,11 +300,15 @@ def confirm_screenshot(
 
         conn.commit()
 
-        log_event("SCREENSHOT_UPLOADED", user, incident_id)
+        try:
+            log_event("SCREENSHOT_UPLOADED", user, incident_id)
+        except Exception as log_error:
+            print(f"Failed to log SCREENSHOT_UPLOADED event: {log_error}")
 
         return {
             "status": "screenshot_confirmed",
             "incident_id": incident_id,
+            "screenshot_key": incident["screenshot_key"],
         }
 
     except HTTPException:
@@ -321,7 +343,7 @@ def get_all_incidents(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT 
+                SELECT
                     id,
                     user_id,
                     incident_name,
@@ -329,10 +351,8 @@ def get_all_incidents(
                     priority,
                     status,
                     screenshot_key,
-                    screenshot_uploaded,
                     created_at,
-                    updated_at,
-                    resolved_at
+                    updated_at
                 FROM incidents
                 ORDER BY created_at DESC
                 """
@@ -366,7 +386,9 @@ def resolve_incident(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, status
+                SELECT
+                    id,
+                    status
                 FROM incidents
                 WHERE id = %s
                 """,
@@ -391,7 +413,6 @@ def resolve_incident(
                 """
                 UPDATE incidents
                 SET status = 'RESOLVED',
-                    resolved_at = NOW(),
                     updated_at = NOW()
                 WHERE id = %s
                 """,
@@ -400,7 +421,10 @@ def resolve_incident(
 
         conn.commit()
 
-        log_event("INCIDENT_RESOLVED", user, incident_id)
+        try:
+            log_event("INCIDENT_RESOLVED", user, incident_id)
+        except Exception as log_error:
+            print(f"Failed to log INCIDENT_RESOLVED event: {log_error}")
 
         return {
             "status": "resolved",
