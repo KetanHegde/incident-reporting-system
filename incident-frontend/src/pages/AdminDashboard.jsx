@@ -94,7 +94,7 @@ export default function AdminDashboard() {
                     )}
                     </div>
                     <p className="mt-2">{i.description}</p>
-                    {i.screenshot_url &&i.status==="OPEN" && (
+                    {i.screenshot_url && (
                       <button
                         onClick={() => {
                           setSelectedImage(i.screenshot_url);
