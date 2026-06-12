@@ -134,7 +134,7 @@ export default function IncidentList({ refreshKey }) {
             <h3 className="text-lg font-semibold mb-4">Screenshot</h3>
 
             <div className="max-h-[75vh] overflow-auto">
-              {selectedScreenshot}
+              <img src={selectedScreenshot} alt="screenshot">
             </div>
           </div>
         </div>
