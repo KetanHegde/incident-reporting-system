@@ -65,8 +65,9 @@ s3 = boto3.client(
 def add_screenshot_urls(rows):
     for row in rows:
         screenshot_key = row.get("screenshot_key")
+        status = row.get("status")
 
-        if screenshot_key:
+        if screenshot_key and status=='OPEN':
             screenshot_url = s3.generate_presigned_url(
                 ClientMethod="get_object",
                 Params={
