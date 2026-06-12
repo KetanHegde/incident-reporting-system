@@ -259,7 +259,8 @@ def get_my_incidents(
             )
 
             rows = cur.fetchall()
-
+            rows = add_screenshot_urls(rows)
+            
         return rows
 
     except Exception as e:
